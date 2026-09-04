@@ -55,6 +55,10 @@
 
 #include "EmuInstance.h"
 
+#ifdef BOTTOM_SCREEN_ENABLED
+#include "BottomScreenBridge.h"
+#endif
+
 using namespace melonDS;
 
 
@@ -252,12 +256,28 @@ void EmuThread::run()
             }
 
             // process input and hotkeys
+#ifdef BOTTOM_SCREEN_ENABLED
+            // Buttons held by network clients are merged with the local
+            // ones. inputMask is active low, so a held key clears a bit.
+            emuInstance->nds->SetKeyMask(emuInstance->inputMask & ~BottomScreen::PressedKeys());
+
+            // Whoever sits at the PC wins: a client only drives the
+            // touch screen while the local mouse is not already on it.
+            melonDS::u16 bsTouchX, bsTouchY;
+            if (emuInstance->isTouching)
+                emuInstance->nds->TouchScreen(emuInstance->touchX, emuInstance->touchY);
+            else if (BottomScreen::TouchState(bsTouchX, bsTouchY))
+                emuInstance->nds->TouchScreen(bsTouchX, bsTouchY);
+            else
+                emuInstance->nds->ReleaseScreen();
+#else
             emuInstance->nds->SetKeyMask(emuInstance->inputMask);
 
             if (emuInstance->isTouching)
                 emuInstance->nds->TouchScreen(emuInstance->touchX, emuInstance->touchY);
             else
                 emuInstance->nds->ReleaseScreen();
+#endif
 
             if (emuInstance->hotkeyPressed(HK_Lid))
             {
@@ -321,6 +341,20 @@ void EmuThread::run()
                 emuInstance->firmwareSave->CheckFlush();
 
             emuInstance->drawScreen();
+
+#ifdef BOTTOM_SCREEN_ENABLED
+            // The frame is finished and drawScreen has taken its copy, so
+            // the bottom framebuffer is stable here. Submitting only
+            // copies it; encoding happens on the server's own thread and
+            // never holds this one up.
+            {
+                void* bsTop; void* bsBottom;
+                if (emuInstance->nds->GPU.GetFramebuffers(&bsTop, &bsBottom))
+                    BottomScreen::SubmitFrame(bsBottom);
+                else
+                    BottomScreen::ReportGpuRenderer();
+            }
+#endif
 
 #ifdef MELONCAP
             MelonCap::Update();

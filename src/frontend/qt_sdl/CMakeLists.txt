@@ -280,3 +280,42 @@ if (ENABLE_OGLRENDERER)
     target_compile_definitions(melonDS PUBLIC MELONDS_GL_HEADER=${MELONDS_GL_HEADER})
     target_compile_definitions(core PUBLIC MELONDS_GL_HEADER=${MELONDS_GL_HEADER})
 endif()
+
+
+# --- bottom_screen_server -------------------------------------------
+#
+# Streams the bottom screen to a phone or a Switch homebrew. The shared
+# code is plain C and lives outside this repository, in the
+# bottom_screen_server tree that this fork sits inside; only
+# BottomScreenBridge.cpp is part of melonDS itself.
+#
+# Optional on purpose: without the sibling directory the fork still
+# builds exactly like upstream, so a bisect or a clean checkout is never
+# blocked on it.
+
+set(BOTTOM_SCREEN_DIR "${CMAKE_SOURCE_DIR}/../.." CACHE PATH
+    "Path to the bottom_screen_server sources")
+
+if (EXISTS "${BOTTOM_SCREEN_DIR}/bs_server.c")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(BOTTOMSCREEN_FFMPEG REQUIRED
+                      libavcodec libavutil libswscale)
+
+    target_sources(melonDS PRIVATE
+        BottomScreenBridge.cpp
+        "${BOTTOM_SCREEN_DIR}/bs_server.c"
+        "${BOTTOM_SCREEN_DIR}/bs_encoder.c"
+        "${BOTTOM_SCREEN_DIR}/bs_net.c"
+        "${BOTTOM_SCREEN_DIR}/bs_mailbox.c"
+    )
+    target_include_directories(melonDS PRIVATE
+        "${BOTTOM_SCREEN_DIR}"
+        ${BOTTOMSCREEN_FFMPEG_INCLUDE_DIRS})
+    target_link_libraries(melonDS PRIVATE
+        ${BOTTOMSCREEN_FFMPEG_LIBRARIES} pthread)
+    target_compile_definitions(melonDS PRIVATE BOTTOM_SCREEN_ENABLED)
+
+    message(STATUS "bottom_screen_server: enabled (${BOTTOM_SCREEN_DIR})")
+else()
+    message(STATUS "bottom_screen_server: not found, building without it")
+endif()
