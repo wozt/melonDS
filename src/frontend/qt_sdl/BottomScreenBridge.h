@@ -55,6 +55,16 @@ void SubmitFrame(const void* bottomBGRA);
  * order -- bit set means held. melonDS's inputMask is active low, so
  * the caller ands with the complement.
  */
+/*
+ * Sound, as melonDS produces it: 48 kHz stereo, 16-bit interleaved.
+ * frames counts sample pairs, not values.
+ *
+ * Taken before the local volume and mute are applied, so what a client
+ * hears is independent of what the machine's own speakers are doing --
+ * muting the emulator on the PC should not silence somebody's phone.
+ */
+void SubmitAudio(const int16_t* samples, int frames);
+
 uint32_t PressedKeys();
 
 /* Returns true and fills x/y while a client is touching the screen. */

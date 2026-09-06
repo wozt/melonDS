@@ -24,6 +24,10 @@
 
 #include "mic_blow.h"
 
+#ifdef BOTTOM_SCREEN_ENABLED
+#include "BottomScreenBridge.h"
+#endif
+
 using namespace melonDS;
 
 #define INTERNAL_FRAME_RATE 59.8260982880808f
@@ -174,6 +178,13 @@ void EmuInstance::audioCallback(void* data, Uint8* stream, int len)
     int num_in = inst->nds->SPU.ReadOutput((s16*) stream, len_in);
     SDL_CondSignal(inst->audioSyncCond);
     SDL_UnlockMutex(inst->audioSyncLock);
+
+#ifdef BOTTOM_SCREEN_ENABLED
+    // Before the volume and mute below: what a client hears should not
+    // depend on what this machine's speakers are doing.
+    if (num_in > 0)
+        BottomScreen::SubmitAudio((const int16_t*) stream, num_in);
+#endif
 
     if ((num_in < 1) || inst->audioMutedByWindowFocus || inst->audioMutedToggle || inst->audioMutedByFastForward)
     {

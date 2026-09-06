@@ -305,6 +305,7 @@ if (EXISTS "${BOTTOM_SCREEN_DIR}/bs_server.c")
         BottomScreenBridge.cpp
         "${BOTTOM_SCREEN_DIR}/bs_server.c"
         "${BOTTOM_SCREEN_DIR}/bs_encoder.c"
+        "${BOTTOM_SCREEN_DIR}/bs_audio.c"
         "${BOTTOM_SCREEN_DIR}/bs_net.c"
         "${BOTTOM_SCREEN_DIR}/bs_mailbox.c"
     )

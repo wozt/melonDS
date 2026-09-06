@@ -78,8 +78,10 @@ void Start(bool enabled, int port)
     /* The DS runs at ~59.83 Hz, not 60. Announcing 60 is close enough
      * for the encoder's rate control and is what every client expects;
      * the real pacing comes from the emulator submitting frames. */
+    /* melonDS opens SDL at 48 kHz stereo, which is what Opus wants, so
+     * nothing is resampled on this path. */
     g_source = bs_mailbox_create(BS_CONSOLE_DS, BS_DS_WIDTH, BS_DS_HEIGHT,
-                                 60, BS_PIXFMT_BGRA);
+                                 60, BS_PIXFMT_BGRA, 48000, 2);
     if (!g_source)
     {
         fprintf(stderr, "bottom_screen: cannot create the frame mailbox\n");
@@ -127,6 +129,13 @@ void SubmitFrame(const void* bottomBGRA)
     if (!g_server || !bottomBGRA)
         return;
     bs_mailbox_submit(g_source, bottomBGRA, BS_DS_WIDTH * 4);
+}
+
+void SubmitAudio(const int16_t* samples, int frames)
+{
+    if (!g_server || !samples || frames <= 0)
+        return;
+    bs_mailbox_submit_audio(g_source, samples, frames);
 }
 
 uint32_t PressedKeys()
