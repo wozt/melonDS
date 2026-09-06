@@ -150,18 +150,39 @@ bool IsRunning()
     return g_server != nullptr;
 }
 
-void SubmitFrame(const void* bottomBGRA)
+/*
+ * The one place a frame reaches the server, whichever renderer produced
+ * it.
+ *
+ * The size is checked every time rather than assumed, because melonDS
+ * can change renderer without restarting: switch from OpenGL at 2x back
+ * to software and the picture goes from 512x384 to 256x192 between two
+ * frames. Submitting the smaller buffer into a mailbox still sized for
+ * the larger one reads well past the end of melonDS's own framebuffer.
+ */
+static void SubmitBGRA(const void* pixels, int width, int height)
 {
-    if (!bottomBGRA)
+    if (!pixels || width <= 0 || height <= 0)
         return;
 
-    // The software renderer is the one that never changes size.
-    g_width  = BS_DS_WIDTH;
-    g_height = BS_DS_HEIGHT;
+    if (width != g_width || height != g_height)
+    {
+        g_width = width;
+        g_height = height;
+        // The server renegotiates with whoever is watching rather than
+        // dropping them over a setting.
+        if (g_source)
+            bs_mailbox_resize(g_source, width, height);
+    }
 
     if (!g_server)
         return;
-    bs_mailbox_submit(g_source, bottomBGRA, BS_DS_WIDTH * 4);
+    bs_mailbox_submit(g_source, pixels, width * 4);
+}
+
+void SubmitFrame(const void* bottomBGRA)
+{
+    SubmitBGRA(bottomBGRA, BS_DS_WIDTH, BS_DS_HEIGHT);
 }
 
 void SubmitFrameGL(unsigned int screenTexArray)
@@ -185,14 +206,13 @@ void SubmitFrameGL(unsigned int screenTexArray)
     if (w <= 0 || h <= 0)
         return;
 
-    if (w != g_width || h != g_height)
+    if (!g_server && (w != g_width || h != g_height))
     {
+        // Nothing is running yet; just record the size so Start can
+        // announce it.
         g_width = w;
         g_height = h;
-        // A setting moved under a running stream. The server renegotiates
-        // with its clients rather than dropping them.
-        if (g_source)
-            bs_mailbox_resize(g_source, g_width, g_height);
+        return;
     }
 
     if (!g_server)
@@ -225,7 +245,7 @@ void SubmitFrameGL(unsigned int screenTexArray)
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevFbo);
 
-    bs_mailbox_submit(g_source, g_readBuf.data(), w * 4);
+    SubmitBGRA(g_readBuf.data(), w, h);
 }
 
 void SubmitAudio(const int16_t* samples, int frames)
