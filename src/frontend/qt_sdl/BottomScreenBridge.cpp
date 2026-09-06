@@ -51,23 +51,29 @@ namespace
     }
 }
 
-void Start()
+void Start(bool enabled, int port)
 {
     if (g_tried)
         return;
     g_tried = true;
 
+    // The variable wins over the setting: a scripted launch should be
+    // able to turn this off without editing a config file someone else
+    // owns.
     const char* off = getenv("BOTTOM_SCREEN");
     if (off && !strcmp(off, "0"))
         return;
+    if (!enabled)
+        return;
 
-    uint16_t port = BS_DEFAULT_PORT;
     if (const char* p = getenv("BOTTOM_SCREEN_PORT"))
     {
         int v = atoi(p);
         if (v > 0 && v < 65536)
-            port = (uint16_t)v;
+            port = v;
     }
+    if (port <= 0 || port > 65535)
+        port = BS_DEFAULT_PORT;
 
     /* The DS runs at ~59.83 Hz, not 60. Announcing 60 is close enough
      * for the encoder's rate control and is what every client expects;
@@ -82,7 +88,7 @@ void Start()
 
     BsServerConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
-    cfg.port = port;
+    cfg.port = (uint16_t)port;
 
     char err[256] = "";
     g_server = bs_server_create(g_source, &cfg, err, sizeof(err));
@@ -118,8 +124,6 @@ bool IsRunning()
 
 void SubmitFrame(const void* bottomBGRA)
 {
-    if (!g_tried)
-        Start();
     if (!g_server || !bottomBGRA)
         return;
     bs_mailbox_submit(g_source, bottomBGRA, BS_DS_WIDTH * 4);

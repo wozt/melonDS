@@ -20,18 +20,25 @@
  * Controlled by environment variables rather than a settings dialog:
  *
  *   BOTTOM_SCREEN=0      turn it off entirely
- *   BOTTOM_SCREEN_PORT   listen port, default 5090
+ *   BOTTOM_SCREEN_PORT   listen port
  *
- * A proper settings panel is a Qt job, and adding one now would mean
- * touching far more of melonDS than this needs to.
+ * Both override the saved settings, which is what a scripted launch
+ * wants; without a variable the settings decide.
  */
 
 namespace BottomScreen
 {
 
-/* Idempotent. Called from the emu thread the first time a frame is
- * submitted, so nothing happens until a game is actually running. */
-void Start();
+/*
+ * Idempotent. Called from the emu thread the first time a frame is
+ * submitted, so nothing happens until a game is actually running.
+ *
+ * Reads melonDS's own settings, BottomScreen.Enabled and
+ * BottomScreen.Port. The environment variables still win when set,
+ * which keeps a scripted launch able to override a saved setting
+ * without editing anyone's config file.
+ */
+void Start(bool enabled, int port);
 void Stop();
 bool IsRunning();
 

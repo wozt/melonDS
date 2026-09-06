@@ -53,6 +53,11 @@ DefaultList<int> DefaultInts =
     {"Instance*.Window*.Width", 256},
     {"Instance*.Window*.Height", 384},
     {"Screen.VSyncInterval", 1},
+
+    // bottom_screen_server: the port to try first. If it is taken the
+    // server walks upwards until it finds a free one, so several
+    // emulators can run at once without being told about each other.
+    {"BottomScreen.Port", 5090},
     {"3D.Renderer", renderer3D_Software},
     {"3D.GL.ScaleFactor", 1},
 #ifdef JIT_ENABLED
@@ -96,6 +101,10 @@ RangeList IntRanges =
 DefaultList<bool> DefaultBools =
 {
     {"Screen.Filter", true},
+
+    // On by default: the server costs nothing until a client connects,
+    // and a feature nobody can find is a feature nobody uses.
+    {"BottomScreen.Enabled", true},
     {"3D.Soft.Threaded", true},
     {"3D.GL.HiresCoordinates", true},
     {"LimitFPS", true},

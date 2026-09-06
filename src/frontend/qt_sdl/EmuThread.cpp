@@ -348,6 +348,14 @@ void EmuThread::run()
             // copies it; encoding happens on the server's own thread and
             // never holds this one up.
             {
+                // Started here rather than lazily inside SubmitFrame, so
+                // the settings are read from the thread that owns them
+                // and the first frame is not the one that blocks on
+                // opening a socket.
+                auto& bsCfg = emuInstance->getGlobalConfig();
+                BottomScreen::Start(bsCfg.GetBool("BottomScreen.Enabled"),
+                                    bsCfg.GetInt("BottomScreen.Port"));
+
                 void* bsTop; void* bsBottom;
                 if (emuInstance->nds->GPU.GetFramebuffers(&bsTop, &bsBottom))
                     BottomScreen::SubmitFrame(bsBottom);
