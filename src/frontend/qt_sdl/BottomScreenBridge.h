@@ -51,6 +51,23 @@ bool IsRunning();
 void SubmitFrame(const void* bottomBGRA);
 
 /*
+ * The other half of the same job, for the OpenGL renderer.
+ *
+ * There, GetFramebuffers reports false and hands back an OpenGL array
+ * texture instead of RAM: both screens in one texture, the top on layer
+ * 0 and the bottom on layer 1, at 256*N by 192*N for an internal
+ * resolution of N. So the bottom screen is not missing, it is merely
+ * somewhere a memcpy cannot reach -- it is read back here.
+ *
+ * Must be called with melonDS's GL context current, which the emu
+ * thread already makes so before running the frame.
+ *
+ * The handle is passed as unsigned int rather than GLuint so this header
+ * needs no GL loader; it is the same type.
+ */
+void SubmitFrameGL(unsigned int screenTexArray);
+
+/*
  * Buttons held by connected clients, as a mask in melonDS's own bit
  * order -- bit set means held. melonDS's inputMask is active low, so
  * the caller ands with the complement.
@@ -69,13 +86,6 @@ uint32_t PressedKeys();
 
 /* Returns true and fills x/y while a client is touching the screen. */
 bool TouchState(uint16_t& x, uint16_t& y);
-
-/*
- * Called when GetFramebuffers reports that the bottom screen is not in
- * RAM -- the OpenGL renderer, where the pointer is a texture handle.
- * Warns once instead of silently streaming nothing.
- */
-void ReportGpuRenderer();
 
 }
 

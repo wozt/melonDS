@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
+
+#include "PlatformOGL.h"
 
 extern "C" {
 #include "bs_mailbox.h"
@@ -19,6 +22,19 @@ namespace
     BsSource* g_source = nullptr;
     BsServer* g_server = nullptr;
     bool      g_tried  = false;
+
+    // What is actually being streamed. Not fixed at 256x192 any more:
+    // the OpenGL renderer draws the screens at 256*N by 192*N, and N is
+    // a setting the player can move while a game is running.
+    int g_width  = 0;
+    int g_height = 0;
+
+    // Scratch for reading a screen off the GPU. Created on first use and
+    // kept for the life of the process: destroying it would need the GL
+    // context current, and Stop is called from wherever the emulator
+    // happens to be shutting down.
+    GLuint g_readFbo = 0;
+    std::vector<unsigned char> g_readBuf;
 
     /*
      * BsButton -> melonDS key bit. melonDS's frontend orders its twelve
@@ -80,7 +96,17 @@ void Start(bool enabled, int port)
      * the real pacing comes from the emulator submitting frames. */
     /* melonDS opens SDL at 48 kHz stereo, which is what Opus wants, so
      * nothing is resampled on this path. */
-    g_source = bs_mailbox_create(BS_CONSOLE_DS, BS_DS_WIDTH, BS_DS_HEIGHT,
+    if (g_width <= 0 || g_height <= 0)
+    {
+        // Nothing has been measured yet. With the OpenGL renderer the
+        // size depends on the internal resolution, which is only known
+        // once a frame has been drawn, so announcing anything now would
+        // be a guess -- and a client would have to be told twice.
+        g_tried = false;
+        return;
+    }
+
+    g_source = bs_mailbox_create(BS_CONSOLE_DS, g_width, g_height,
                                  60, BS_PIXFMT_BGRA, 48000, 2);
     if (!g_source)
     {
@@ -126,9 +152,80 @@ bool IsRunning()
 
 void SubmitFrame(const void* bottomBGRA)
 {
-    if (!g_server || !bottomBGRA)
+    if (!bottomBGRA)
+        return;
+
+    // The software renderer is the one that never changes size.
+    g_width  = BS_DS_WIDTH;
+    g_height = BS_DS_HEIGHT;
+
+    if (!g_server)
         return;
     bs_mailbox_submit(g_source, bottomBGRA, BS_DS_WIDTH * 4);
+}
+
+void SubmitFrameGL(unsigned int screenTexArray)
+{
+    if (!screenTexArray)
+        return;
+
+    /*
+     * Ask the texture how big it is rather than working it out from the
+     * scale setting.
+     *
+     * The same shortcut on the Azahar side -- trusting a size that
+     * described the console rather than the texture -- read six times
+     * past the end of the buffer. The texture is the only thing that
+     * knows, and asking costs one call a frame.
+     */
+    GLint w = 0, h = 0;
+    glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)screenTexArray);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_WIDTH, &w);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_HEIGHT, &h);
+    if (w <= 0 || h <= 0)
+        return;
+
+    if (w != g_width || h != g_height)
+    {
+        g_width = w;
+        g_height = h;
+        // A setting moved under a running stream. The server renegotiates
+        // with its clients rather than dropping them.
+        if (g_source)
+            bs_mailbox_resize(g_source, g_width, g_height);
+    }
+
+    if (!g_server)
+        return;
+
+    if (!g_readFbo)
+        glGenFramebuffers(1, &g_readFbo);
+
+    const size_t needed = (size_t)w * (size_t)h * 4;
+    if (g_readBuf.size() < needed)
+        g_readBuf.resize(needed);
+
+    /*
+     * Layer 1 is the bottom screen: the software path uploads the top
+     * framebuffer to layer 0 and the bottom to layer 1, and the OpenGL
+     * path hands the compositor's own texture to the same shader.
+     */
+    GLint prevFbo = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevFbo);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, g_readFbo);
+    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                              (GLuint)screenTexArray, 0, 1);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+    // BGRA rather than RGBA so both paths hand the encoder the same
+    // thing and nothing downstream has to know which renderer drew it.
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, g_readBuf.data());
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevFbo);
+
+    bs_mailbox_submit(g_source, g_readBuf.data(), w * 4);
 }
 
 void SubmitAudio(const int16_t* samples, int frames)
@@ -158,19 +255,6 @@ uint32_t PressedKeys()
     return mask;
 }
 
-void ReportGpuRenderer()
-{
-    static bool warned = false;
-    if (warned || !g_server)
-        return;
-    warned = true;
-    fprintf(stderr,
-        "bottom_screen: the OpenGL renderer keeps the bottom screen on the\n"
-        "               GPU, so there is nothing in RAM to stream. Switch to\n"
-        "               the software renderer, or wait for the GPU readback\n"
-        "               path.\n");
-}
-
 bool TouchState(uint16_t& x, uint16_t& y)
 {
     if (!g_server)
@@ -181,10 +265,23 @@ bool TouchState(uint16_t& x, uint16_t& y)
     if (!in.touching)
         return false;
 
-    /* Clients send console pixel coordinates, but a malformed or
-     * mis-scaled client could still send something outside the screen,
-     * and melonDS would happily take it. */
-    int cx = in.touch_x, cy = in.touch_y;
+    /*
+     * Clients send coordinates in the space the server announced, which
+     * is 256x192 only while the internal resolution is 1. Dividing by
+     * the console's own size instead would put every tap wrong by
+     * exactly the scale -- at 4x the whole screen would fold into its
+     * top-left quarter -- and it looks like a calibration problem rather
+     * than the arithmetic mistake it is. The Azahar backend had this
+     * exact bug.
+     */
+    const int announced_w = g_width  > 0 ? g_width  : BS_DS_WIDTH;
+    const int announced_h = g_height > 0 ? g_height : BS_DS_HEIGHT;
+
+    int cx = in.touch_x * BS_DS_WIDTH  / announced_w;
+    int cy = in.touch_y * BS_DS_HEIGHT / announced_h;
+
+    /* A malformed or mis-scaled client could still send something off
+     * the screen, and melonDS would happily take it. */
     if (cx < 0) cx = 0;
     if (cy < 0) cy = 0;
     if (cx >= BS_DS_WIDTH)  cx = BS_DS_WIDTH - 1;

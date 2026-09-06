@@ -356,11 +356,16 @@ void EmuThread::run()
                 BottomScreen::Start(bsCfg.GetBool("BottomScreen.Enabled"),
                                     bsCfg.GetInt("BottomScreen.Port"));
 
+                // true: the screens are in RAM, which is the software
+                // renderer. false: they are an OpenGL array texture, and
+                // GetFramebuffers puts its handle in the first pointer --
+                // that is the path that carries a raised internal
+                // resolution, so it is read back rather than skipped.
                 void* bsTop; void* bsBottom;
                 if (emuInstance->nds->GPU.GetFramebuffers(&bsTop, &bsBottom))
                     BottomScreen::SubmitFrame(bsBottom);
-                else
-                    BottomScreen::ReportGpuRenderer();
+                else if (bsTop)
+                    BottomScreen::SubmitFrameGL(*(unsigned int*)bsTop);
             }
 #endif
 
