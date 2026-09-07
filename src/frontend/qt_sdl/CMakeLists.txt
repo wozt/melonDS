@@ -297,23 +297,13 @@ set(BOTTOM_SCREEN_DIR "${CMAKE_SOURCE_DIR}/../.." CACHE PATH
     "Path to the bottom_screen_server sources")
 
 if (EXISTS "${BOTTOM_SCREEN_DIR}/bs_server.c")
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(BOTTOMSCREEN_FFMPEG REQUIRED
-                      libavcodec libavutil libswscale libswresample)
+    # The file list lives beside the sources it names, so adding one is
+    # a single edit rather than three that can be forgotten separately.
+    include("${BOTTOM_SCREEN_DIR}/bottom_screen.cmake")
+    bottom_screen_sources(BOTTOM_SCREEN_C)
 
-    target_sources(melonDS PRIVATE
-        BottomScreenBridge.cpp
-        "${BOTTOM_SCREEN_DIR}/bs_server.c"
-        "${BOTTOM_SCREEN_DIR}/bs_encoder.c"
-        "${BOTTOM_SCREEN_DIR}/bs_audio.c"
-        "${BOTTOM_SCREEN_DIR}/bs_net.c"
-        "${BOTTOM_SCREEN_DIR}/bs_mailbox.c"
-    )
-    target_include_directories(melonDS PRIVATE
-        "${BOTTOM_SCREEN_DIR}"
-        ${BOTTOMSCREEN_FFMPEG_INCLUDE_DIRS})
-    target_link_libraries(melonDS PRIVATE
-        ${BOTTOMSCREEN_FFMPEG_LIBRARIES} pthread)
+    target_sources(melonDS PRIVATE BottomScreenBridge.cpp ${BOTTOM_SCREEN_C})
+    bottom_screen_attach(melonDS)
     target_compile_definitions(melonDS PRIVATE BOTTOM_SCREEN_ENABLED)
 
     message(STATUS "bottom_screen_server: enabled (${BOTTOM_SCREEN_DIR})")
