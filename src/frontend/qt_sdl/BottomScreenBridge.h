@@ -51,6 +51,14 @@ bool IsRunning();
 void SubmitFrame(const void* bottomBGRA);
 
 /*
+ * The top screen, for a client that asked for it. Does nothing -- and
+ * costs nothing -- while nobody is watching that screen. Only the
+ * software renderer calls this; the OpenGL path reads both layers of
+ * its own texture inside SubmitFrameGL.
+ */
+void SubmitTopFrame(const void* topBGRA);
+
+/*
  * The other half of the same job, for the OpenGL renderer.
  *
  * There, GetFramebuffers reports false and hands back an OpenGL array

@@ -363,7 +363,12 @@ void EmuThread::run()
                 // resolution, so it is read back rather than skipped.
                 void* bsTop; void* bsBottom;
                 if (emuInstance->nds->GPU.GetFramebuffers(&bsTop, &bsBottom))
+                {
                     BottomScreen::SubmitFrame(bsBottom);
+                    // And the other one, for whoever asked for it. It
+                    // returns immediately if nobody has.
+                    BottomScreen::SubmitTopFrame(bsTop);
+                }
                 else if (bsTop)
                     BottomScreen::SubmitFrameGL(*(unsigned int*)bsTop);
             }
